@@ -1,0 +1,36 @@
+{
+    "scripts": {
+      "dev": "nodemon --inspect ativosrestantes5.mjs",
+      "campanha": "nodemon --inspect relatoriocampanha1.mjs",
+      "nega": "nodemon --inspect negativacao.js",
+      "big": "nodemon --inspect bigquery.js",
+      "teste": "nodemon --inspect testequery.js",
+      "backup": "nodemon --inspect bigquerybackup.js",
+      "looker": "nodemon --inspect looker.mjs",
+      "ativos": "nodemon --inspect ativosrestantes5.mjs",
+      "contas": "nodemon --inspect contas2.mjs",
+      "todos":"nodemon --inspect geral.mjs"
+    },
+    "dependencies": {
+      "@google-cloud/bigquery": "^7.3.0",
+      "@prisma/client": "^5.15.0",
+      "axios": "^1.7.2",
+      "exceljs": "^4.4.0",
+      "fs": "^0.0.1-security",
+      "google-auth-library": "^9.4.1",
+      "googleapis": "^126.0.1",
+      "node-cron": "^3.0.3",
+      "node-fetch": "^3.3.2",
+      "p-limit": "^6.1.0",
+      "puppeteer": "^21.11.0",
+      "read-excel-file": "^5.7.1"
+    },
+    "devDependencies": {
+      "@types/node": "^20.12.13",
+      "nodemon": "^3.1.0",
+      "prisma": "^5.15.0",
+      "ts-node": "^10.9.2",
+      "typescript": "^5.4.5"
+    }
+  }
+  
