@@ -76,12 +76,14 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 async function getCookiesFromCode2(client) {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+       headless: false,
+       executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+     });
   const page = await browser.newPage();
 
   const existingCookies = await page.cookies();
   await page.deleteCookie(...existingCookies);
-
   try {
     await Promise.race([
       page.goto('https://app.snov.io/login', { waitUntil: 'domcontentloaded', timeout: 30000 }),
@@ -223,6 +225,7 @@ async function main() {
   for (const client of clients) {
     let tries = 0;
     let success = false;
+    
 
     while (tries < MAX_TRIES && !success) {
       try {
@@ -287,12 +290,14 @@ async function main() {
         console.warn(`Erro ao processar o cliente ${client.email}. Tentativa ${tries + 1} de ${MAX_TRIES}.`);
         tries++;
       }
+      await sleep(60000);
     }
 
     if (!success) {
       console.error(`Falha ao recuperar os dados do cliente ${client.email} após ${MAX_TRIES} tentativas.`);
       clientsWithTimeout.push(client);
     }
+  
   }
 
   for (const client of clientsWithTimeout) {
