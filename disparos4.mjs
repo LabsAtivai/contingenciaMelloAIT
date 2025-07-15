@@ -1,12 +1,7 @@
-import puppeteer from "puppeteer";
 import axios from "axios";
-import fs from "fs";
 import { google } from "googleapis";
 
-function formatCookies(cookies) {
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-}
-
+// Credenciais da conta de serviço
 const credentials = {
   type: "service_account",
   project_id: "relatoriolistas",
@@ -24,325 +19,108 @@ const credentials = {
 };
 
 async function readClientDataFromSheet(auth) {
-  console.log("Entrando em readClientDataFromSheet...");
   const sheets = google.sheets({ version: "v4", auth });
   const spreadsheetId = "1u4rMoTUQz0w_g92xmV8_pjtVc8JtKLLH7v090V5lq40";
   const range = "contas";
 
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range,
-    });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+  const rows = response.data.values;
+  if (!rows.length) return [];
 
-    const rows = response.data.values;
-
-    if (!rows.length) {
-      console.log("No data found.");
-      return [];
-    }
-
-    const clients = [];
-    rows.forEach((row, index) => {
-      if (index !== 0 && row[0] === "TRUE") {
-        clients.push({
-          email: row[1],
-          clientId: row[2],
-          clientSecret: row[3],
-          emailSnovio: row[4],
-          password: row[5],
-        });
-      }
-    });
-
-    console.log("Clientes extraídos:", clients.length);
-
-    return clients;
-  } catch (error) {
-    console.error("Erro ao ler dados do Google Sheets:", error);
-    throw error;
-  }
+  return rows.slice(1).filter(r => r[0] === "TRUE").map(r => ({
+    email: r[1],
+    clientId: r[2],
+    clientSecret: r[3],
+  }));
 }
 
-function timeout(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+async function getCampaignData(sheets, email) {
+  const spreadsheetId = "1IMH9GB0lmksuobxjGQmsVe1C2t04d1g-v9xEspnMKTY";
+  const range = "campanhas";
 
-async function getCookiesFromCode2(client) {
-  const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
-
-  const existingCookies = await page.cookies();
-  await page.deleteCookie(...existingCookies);
-
-  try {
-    await Promise.race([
-      page.goto("https://app.snov.io/login", {
-        waitUntil: "domcontentloaded",
-        timeout: 30000,
-      }),
-      timeout(30000),
-    ]);
-
-    //await page.waitForSelector('#CybotCookiebotDialogPoweredbyImage'); // Esperar pelo botão de aceitar cookies
-    //await page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'); // Clicar no botão de aceitar cookies
-
-    // Aguardar um pequeno atraso após aceitar os cookies
-    //await delay(1000); // Aguarde 5 segundos (ajuste conforme necessário)
-
-    await page.waitForSelector(
-      "#app > div > div > div > div.auth-wrapper__right > div.auth-wrapper__right-content > div > div > div.form-wrapper > form > div:nth-child(1) > input"
-    );
-    await page.type(
-      "#app > div > div > div > div.auth-wrapper__right > div.auth-wrapper__right-content > div > div > div.form-wrapper > form > div:nth-child(1) > input",
-      String(client.emailSnovio)
-    );
-
-    await page.waitForSelector(
-      "#app > div > div > div > div.auth-wrapper__right > div.auth-wrapper__right-content > div > div > div.form-wrapper > form > div:nth-child(2) > input"
-    );
-    await page.type(
-      "#app > div > div > div > div.auth-wrapper__right > div.auth-wrapper__right-content > div > div > div.form-wrapper > form > div:nth-child(2) > input",
-      String(client.password)
-    );
-
-    await page.click(
-      "#app > div > div > div > div.auth-wrapper__right > div.auth-wrapper__right-content > div > div > div.form-wrapper > form > button"
-    );
-    await page.waitForNavigation({ timeout: 60000 });
-
-    await timeout(6000);
-
-    const cookies = {};
-
-    await page.goto("https://app.snov.io/back/email-account/info-new");
-    const emailCookiesList = await page.cookies();
-    cookies.emailCookies = emailCookiesList;
-
-    await browser.close();
-
-    return {
-      emailCookies: emailCookiesList,
-    };
-  } catch (error) {
-    await browser.close();
-    if (error.message.includes("Timed out after")) {
-      console.warn("Timeout ao tentar login. Vamos tentar outro cliente.");
-      return null;
-    }
-    console.error("Erro ao pegar cookies: ", error);
-    throw error;
-  }
-}
-
-// Função para criar um atraso em milissegundos
-function delay(time) {
-  return new Promise((resolve) => setTimeout(resolve, time));
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+  return response.data.values
+    .filter(row => row[1] === email)
+    .map(row => ({ id: row[2], name: row[3] }));
 }
 
 async function getAccessToken(clientId, clientSecret) {
-  try {
-    const response = await axios.post(
-      "https://api.snov.io/v1/oauth/access_token",
-      {
-        grant_type: "client_credentials",
-        client_id: clientId,
-        client_secret: clientSecret,
-      }
-    );
-
-    if (response.data.access_token) {
-      return response.data.access_token;
-    } else {
-      console.error("Erro ao obter o token de acesso:", response.data);
-      throw new Error("Não foi possível obter o token de acesso");
-    }
-  } catch (error) {
-    console.error("Erro ao obter o token de acesso:", error);
-    throw error;
-  }
+  const response = await axios.post("https://api.snov.io/v1/oauth/access_token", {
+    grant_type: "client_credentials",
+    client_id: clientId,
+    client_secret: clientSecret,
+  });
+  return response.data.access_token;
 }
 
-async function addToGoogleSheets(auth, client, emailDetails) {
-  try {
-    const auth = await google.auth.getClient({
-      credentials: credentials,
-      scopes: "https://www.googleapis.com/auth/spreadsheets",
-    });
+async function getDisparosPorData(accessToken, campaignId, dateStr) {
+  const response = await axios.get("https://api.snov.io/v1/emails-sent", {
+    params: { access_token: accessToken, campaignId }
+  });
 
-    const sheets = google.sheets({ version: "v4", auth });
+  const emails = Array.isArray(response.data) ? response.data : response.data.emails || [];
+  const [year, month, day] = dateStr.split("-").map(Number);
 
-    const spreadsheetId = "1IMH9GB0lmksuobxjGQmsVe1C2t04d1g-v9xEspnMKTY";
-    const range = "disparos";
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+  const end = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
 
-    const today = new Date();
-    const dateWithoutTime = today.toISOString().split("T")[0];
+  return emails.filter(email => {
+    const sentStr = email?.sentDate;
+    const emailDate = new Date(sentStr);
+    const ts = new Date(emailDate.getTime() - emailDate.getTimezoneOffset() * 60000).getTime();
+    return ts >= start && ts <= end;
+  }).length;
+}
 
-    if (!Array.isArray(emailDetails)) {
-      console.error("Erro: emailDetails não é um array:", emailDetails);
-      return;
-    }
+async function appendDisparosToGoogleSheets(sheets, campaign, disparos, dateStr) {
+  const spreadsheetId = "1IMH9GB0lmksuobxjGQmsVe1C2t04d1g-v9xEspnMKTY";
+  const sheetName = "disparosAnterior";
 
-    const values = emailDetails.map((detail) => [
-      "",
-      client.email,
-      detail.valid,
-      detail.id,
-      detail.active,
-      detail.senderName,
-      detail.emailFrom,
-      detail.type,
-      detail.limitation,
-      detail.accountSuspended,
-      detail.suspendMessage,
-      detail.usedCount,
-      detail.provider,
-      detail.imapAccount.valid,
-      detail.imapAccount.username,
-    ]);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!A:A` });
+  const nextRow = res.data.values?.length + 1 || 1;
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range,
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      resource: {
-        values,
-      },
-    });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A${nextRow}:D${nextRow}`,
+    valueInputOption: "RAW",
+    resource: { values: [[campaign.id, disparos, campaign.name]] },
+  });
 
-    console.log("Dados adicionados com sucesso ao Google Sheets");
-  } catch (error) {
-    console.error("Erro ao adicionar dados ao Google Sheets:", error);
-  }
+  console.log(`✅ ${campaign.name} - ${disparos} disparos em ${dateStr}`);
+}
+
+function today() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function main() {
   const auth = await google.auth.getClient({
-    credentials: credentials,
+    credentials,
     scopes: "https://www.googleapis.com/auth/spreadsheets",
   });
 
-  const clients = await readClientDataFromSheet(auth);
   const sheets = google.sheets({ version: "v4", auth });
-  let clientsWithTimeout = []; // Array para armazenar clientes com timeout
-
-  const MAX_TRIES = 3;
+  const clients = await readClientDataFromSheet(auth);
+  const dateStr = today();
 
   for (const client of clients) {
-    let tries = 0;
-    let success = false;
+    try {
+      const token = await getAccessToken(client.clientId, client.clientSecret);
+      const campaigns = await getCampaignData(sheets, client.email);
 
-    while (tries < MAX_TRIES && !success) {
-      try {
-        const accessToken = await getAccessToken(
-          client.clientId,
-          client.clientSecret
-        );
-
-        let cookies = await getCookiesFromCode2(client);
-        if (!cookies || !cookies.emailCookies) {
-          throw new Error(
-            `Cookies não foram obtidos para o cliente ${client.email}`
-          );
-        }
-
-        const cookieString = formatCookies(cookies.emailCookies);
-        console.log("Formatted Campaign Cookies:", cookieString);
-        const response = await axios.get(
-          "https://app.snov.io/back/email-account/info-new",
-          {
-            params: {
-              perPage: 20,
-              page: 1,
-            },
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-              Cookie: cookieString,
-              Accept: "application/json, text/plain, /",
-              "Sec-Fetch-Mode": "cors",
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
-              "X-Requested-With": "XMLHttpRequest",
-            },
-          }
-        );
-
-        if (response.status === 200) {
-          console.log("Dados obtidos com sucesso:", response.data);
-
-          let emailDetails = extractEmailDetails(response.data);
-
-          console.log("Detalhes do Email:", emailDetails);
-
-          if (emailDetails.length > 0) {
-            await addToGoogleSheets(auth, client, emailDetails);
-            success = true;
-          } else {
-            console.error(
-              "Erro: A resposta retornou um status:",
-              response.status
-            );
-            tries++;
-          }
-        }
-        success = true;
-      } catch (error) {
-        console.warn(
-          `Erro ao processar o cliente ${client.email}. Tentativa ${
-            tries + 1
-          } de ${MAX_TRIES}.`
-        );
-        tries++;
+      for (const campaign of campaigns) {
+        const disparos = await getDisparosPorData(token, campaign.id, dateStr);
+        await appendDisparosToGoogleSheets(sheets, campaign, disparos, dateStr);
       }
+    } catch (err) {
+      console.error("Erro para cliente:", client.email, err.message);
     }
-
-    if (!success) {
-      console.error(
-        `Falha ao recuperar os dados do cliente ${client.email} após ${MAX_TRIES} tentativas.`
-      );
-      clientsWithTimeout.push(client); // Adiciona ao array de contas problemáticas
-    }
-  }
-
-  // Mostra as contas que deram timeout no final
-  if (clientsWithTimeout.length > 0) {
-    console.log("\n__________ Contas com Timeout __________");
-    clientsWithTimeout.forEach((client) => {
-      console.log(client.email);
-    });
-    console.log("_______________________________________\n");
-  } else {
-    console.log("\nNenhuma conta apresentou timeout. Todas as operações foram concluídas com sucesso.\n");
-  }
-
-  function extractEmailDetails(response) {
-    if (response.data && response.data.emailAccounts) {
-      return response.data.emailAccounts.map((account) => ({
-        valid: account.valid,
-        id: account.id,
-        active: account.active,
-        senderName: account.senderName,
-        emailFrom: account.emailFrom,
-        type: account.type,
-        limitation: account.limitation,
-        accountSuspended: account.accountSuspended,
-        suspendMessage: account.suspendMessage,
-        usedCount: account.usedCount,
-        provider: account.provider,
-        imapAccount: {
-          valid: account.imapAccount ? account.imapAccount.valid : null,
-          username: account.imapAccount ? account.imapAccount.username : null,
-        },
-      }));
-    }
-
-    return [];
   }
 }
 
-
-// main();
-
+//main();
 export default main;
