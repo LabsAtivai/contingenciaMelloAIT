@@ -1,7 +1,7 @@
 
 import campanhas from "./relatoriocampanha1.mjs"
 import disparos from "./disparos4.mjs";
-import ativosRestantes from "./ativosrestantes5.mjs";
+import ativos from "./relatorioListasv2.mjs";
 import cron from "node-cron";
 
 // Marca o início do tempo de execução
@@ -20,14 +20,15 @@ function logExecutionTime() {
 }
 
 // Executa as funções em sequência e exibe o tempo de execução total ao final
-campanhas().then(() => {
-    disparos().then(() => {
-      ativosRestantes().then(() => {
+ campanhas().then(() => {
+     ativos().then(() => {
+      disparos().then(() => {
         console.log("Finalizou");
         logExecutionTime(); // Loga o tempo total de execução aqui
       });
     });
-  });
+    });
+ 
     
 
 // Opcional: Configuração do cron para execução automática (se necessário)
